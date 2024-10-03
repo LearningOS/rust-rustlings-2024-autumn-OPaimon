@@ -1,64 +1,82 @@
 {
-  description = "Small exercises to get you used to reading and writing Rust code";
+  description = "A Nix-flake-based Rust development environment";
 
   inputs = {
-    flake-compat = {
-      url = "github:edolstra/flake-compat";
-      flake = false;
+    nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1.*.tar.gz";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
     };
-    flake-utils.url = "github:numtide/flake-utils";
-    nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   };
 
-  outputs = { self, flake-utils, nixpkgs, ... }:
-    flake-utils.lib.eachDefaultSystem (system:
-      let
-        pkgs = nixpkgs.legacyPackages.${system};
+  outputs = { self, nixpkgs, rust-overlay }:
+    let
+      supportedSystems =
+        [ "x86_64-linux" "aarch64-linux" "x86_64-darwin" "aarch64-darwin" ];
+      forEachSupportedSystem = f:
+        nixpkgs.lib.genAttrs supportedSystems (system:
+          f {
+            pkgs = import nixpkgs {
+              inherit system;
+              overlays =
+                [ rust-overlay.overlays.default self.overlays.default ];
+            };
+          });
 
-        cargoBuildInputs = with pkgs; lib.optionals stdenv.isDarwin [
-          darwin.apple_sdk.frameworks.CoreServices
-        ];
-
-        rustlings =
-          pkgs.rustPlatform.buildRustPackage {
-            name = "rustlings";
-            version = "5.5.1";
-
-            buildInputs = cargoBuildInputs;
-
-            src = with pkgs.lib; cleanSourceWith {
+      rustlings = forEachSupportedSystem ({ pkgs }:
+        pkgs.rustPlatform.buildRustPackage {
+          name = "rustlings";
+          version = "5.5.1";
+          doCheck = false;
+          src = with pkgs.lib;
+            cleanSourceWith {
               src = self;
-              # a function that returns a bool determining if the path should be included in the cleaned source
               filter = path: type:
                 let
-                  # filename
                   baseName = builtins.baseNameOf (toString path);
-                  # path from root directory
                   path' = builtins.replaceStrings [ "${self}/" ] [ "" ] path;
-                  # checks if path is in the directory
                   inDirectory = directory: hasPrefix directory path';
-                in
-                inDirectory "src" ||
-                inDirectory "tests" ||
-                hasPrefix "Cargo" baseName ||
-                baseName == "info.toml";
+                in inDirectory "src" || hasPrefix "Cargo" baseName || baseName
+                == "info.toml";
             };
 
-            cargoLock.lockFile = ./Cargo.lock;
-          };
-      in
-      {
-        devShell = pkgs.mkShell {
-          RUST_SRC_PATH = "${pkgs.rust.packages.stable.rustPlatform.rustLibSrc}";
+          cargoLock.lockFile = ./Cargo.lock;
+        });
 
-          buildInputs = with pkgs; [
-            cargo
-            rustc
+    in {
+      overlays.default = final: prev: {
+        rustToolchain = let rust = prev.rust-bin;
+        in if builtins.pathExists ./rust-toolchain.toml then
+          rust.fromRustupToolchainFile ./rust-toolchain.toml
+        else if builtins.pathExists ./rust-toolchain then
+          rust.fromRustupToolchainFile ./rust-toolchain
+        else
+          rust.stable.latest.default.override {
+            extensions = [ "rust-src" "rustfmt" ];
+          };
+      };
+
+      devShells = forEachSupportedSystem ({ pkgs }: {
+        default = pkgs.mkShell {
+          packages = with pkgs; [
+            rustToolchain
+            openssl
+            pkg-config
+            cargo-deny
+            cargo-edit
+            cargo-watch
             rust-analyzer
-            rustlings
-            rustfmt
-            clippy
-          ] ++ cargoBuildInputs;
+            rustlings.${pkgs.system}
+          ];
+
+          env = {
+            # Required by rust-analyzer
+            RUST_SRC_PATH =
+              "${pkgs.rustToolchain}/lib/rustlib/src/rust/library";
+            COLORTERM = "truecolor";
+          };
         };
       });
+
+    };
 }
