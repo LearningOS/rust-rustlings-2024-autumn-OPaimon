@@ -1,9 +1,9 @@
 /*
-	heap
-	This question requires you to implement a binary heap function
+    heap
+    This question requires you to implement a binary heap function
 */
-// I AM NOT DONE
 
+use core::panic;
 use std::cmp::Ord;
 use std::default::Default;
 
@@ -37,7 +37,13 @@ where
     }
 
     pub fn add(&mut self, value: T) {
-        //TODO
+        self.count += 1;
+        self.items.push(value);
+        let mut cnt = self.count;
+        while cnt > 1 && (self.comparator)(&self.items[cnt], &self.items[cnt / 2]) {
+            self.items.swap(cnt, cnt / 2);
+            cnt /= 2;
+        }
     }
 
     fn parent_idx(&self, idx: usize) -> usize {
@@ -57,8 +63,20 @@ where
     }
 
     fn smallest_child_idx(&self, idx: usize) -> usize {
-        //TODO
-		0
+        let left = self.left_child_idx(idx);
+        let right = self.right_child_idx(idx);
+        match (self.items.get(left), self.items.get(right)) {
+            (None, None) => panic!("No child!"),
+            (Some(_), None) => left,
+            (Some(leftV), Some(rightV)) => {
+                if (self.comparator)(leftV, rightV) {
+                    left
+                } else {
+                    right
+                }
+            }
+            _ => panic!("Not a vaild heap!"),
+        }
     }
 }
 
@@ -85,7 +103,28 @@ where
 
     fn next(&mut self) -> Option<T> {
         //TODO
-		None
+        if self.count == 0 {
+            return None;
+        }
+        self.items.swap(1, self.count);
+        let result = self.items.pop();
+        self.count -= 1;
+
+        let mut cnt = 1;
+
+        while 2 * cnt <= self.count {
+            let cnt_v = &self.items[cnt];
+            let child = self.smallest_child_idx(cnt);
+            let child_v = &self.items[child];
+            if (self.comparator)(&child_v, &cnt_v) {
+                self.items.swap(cnt, child);
+                cnt = child;
+            } else {
+                break;
+            }
+        }
+
+        result
     }
 }
 
